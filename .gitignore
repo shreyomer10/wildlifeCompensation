@@ -1,0 +1,7 @@
+# Firebase / Google service account keys
+compensation-app-4b6fa-firebase-adminsdk-*.json
+
+# Common Python ignores
+__pycache__/
+*.pyc
+.env
