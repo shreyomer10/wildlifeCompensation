@@ -1,7 +1,73 @@
-# Firebase / Google service account keys
+# # Firebase / Google service account keys
 compensation-app-4b6fa-firebase-adminsdk-*.json
 
-# Common Python ignores
+# # Common Python ignores
+# __pycache__/
+# *.pyc
+# .env
+
+
+# --- Python ---
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# --- Virtual Environment ---
+venv/
+env/
+ENV/
+
+# --- Environment Config ---
 .env
+*.env
+
+# --- Firebase / Secret Keys ---
+app/firebase_service_account.json
+firebase_service_account.json
+serviceAccountKey.json
+
+# Never commit secret JSON from Config
+*.secret.json
+*credentials*.json
+
+# --- Local Development Files ---
+*.sqlite3
+*.db
+.DS_Store
+*.log
+
+# --- OS-specific ---
+Thumbs.db
+
+# --- IDE Stuff ---
+.vscode/
+.idea/
+
+# --- Cache / Build ---
+dist/
+build/
+__pycache__/
+
+# --- Compiled artifacts ---
+*.so
+*.dll
+*.class
+*.exe
+
+# --- Node / Frontend (if any future) ---
+node_modules/
+
+# --- Editor backups ---
+*~
+*.swp
+*.swo
+
+# --- Images / Upload Data ---
+*.png
+*.jpg
+*.jpeg
+*.pdf
+/uploads/
+storage/

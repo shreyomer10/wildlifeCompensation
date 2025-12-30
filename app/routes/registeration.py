@@ -259,5 +259,5 @@ def refresh_token(decoded_data):
         new_token = jwt.encode(new_payload, SECRET_KEY, algorithm="HS256")
         return jsonify({"message": "Token refreshed successfully", "token": new_token, "employee": decoded_data["employee"]}), 200
     except Exception as e:
-        logging.error(f"Error refreshing token: {e}")
+       # logging.error(f"Error refreshing token: {e}")
         return jsonify({"error": "Failed to refresh token", "details": str(e)}), 500

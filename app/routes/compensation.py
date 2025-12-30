@@ -7,6 +7,12 @@ import logging
 from mysql.connector import Error
 from app.utils.tokenCheck import token_required
 
+
+from app.utils.form_text import build_canonical_form_text
+from app.utils.embeddings import embed_text
+from app.utils.pinecone_store import ensure_index, fetch_vector, upsert_form_vector,query_similar
+from app.utils.simalirtyScores import compute_final_score
+
 compensation_bp = Blueprint('compensation', __name__)
 
 @compensation_bp.route('', methods=['POST'])
@@ -174,8 +180,87 @@ def insert_compensation_form(decoded_data):
                 "", data['comments'],data['lat'],data['long']
             ))
 
+        # --- commit the insert first ---
         connection.commit()
-        return jsonify({"message": "Compensation form submitted successfully"}), 201
+
+        # --- reliably obtain inserted FormID ---
+        new_form_id = None
+        try:
+            new_form_id = cursor.lastrowid or None
+        except Exception:
+            new_form_id = None
+
+        if not new_form_id:
+            # fallback to LAST_INSERT_ID() in case driver didn't populate lastrowid
+            try:
+                tmp_cursor = connection.cursor(dictionary=True)
+                tmp_cursor.execute("SELECT LAST_INSERT_ID() AS id")
+                row = tmp_cursor.fetchone()
+                tmp_cursor.close()
+                new_form_id = row.get("id") if row else None
+            except Exception as e:
+                logging.exception("Failed to fetch LAST_INSERT_ID(): %s", e)
+                return jsonify({"error": "Failed to determine inserted form id"}), 500
+
+        if not new_form_id:
+            logging.error("insert_compensation_form: could not determine new FormID after insert")
+            return jsonify({"error": "Could not determine new FormID after insert"}), 500
+
+        # --- fetch the newly inserted row and validate ---
+        cursor2 = connection.cursor(dictionary=True)
+        cursor2.execute("SELECT * FROM compensationform WHERE FormID = %s", (new_form_id,))
+        new_form = cursor2.fetchone()
+        cursor2.close()
+
+        if not new_form:
+            logging.error("insert_compensation_form: inserted form not found for FormID=%s", new_form_id)
+            return jsonify({"error": f"Inserted form (FormID={new_form_id}) not found"}), 500
+
+        # --- build canonical text and embedding from the DB row ---
+        try:
+            text = build_canonical_form_text(new_form)
+            vector = embed_text(text)
+        except Exception as e:
+            logging.exception("Embedding creation failed for FormID=%s : %s", new_form_id, e)
+            # continue (we still succeeded inserting into DB), but return success with warning
+            return jsonify({
+                "message": "Compensation form submitted successfully (but embedding failed)",
+                "formID": new_form_id,
+                "embedding_error": str(e)
+            }), 201
+
+        metadata = {
+            "formID": str(new_form["FormID"]),
+
+            "SubmissionDateTime": str(new_form.get("SubmissionDateTime")),
+            "ApplicantName": new_form.get("ApplicantName"),
+            "FatherSpouseName": new_form.get("FatherSpouseName"),
+
+            "IncidentDate": new_form.get("IncidentDate"),   # keep exact DB key
+
+            "lat": float(new_form.get("lat")) if new_form.get("lat") else None,
+            "longitude": float(new_form.get("longitude")) if new_form.get("longitude") else None,
+
+            "Mobile": new_form.get("Mobile"),
+            "IFSCCode": new_form.get("IFSCCode"),
+            "AadhaarNumber": new_form.get("AadhaarNumber"),
+            "AccountNumber": new_form.get("AccountNumber"),
+        }
+
+
+        # ---- UPSERT INTO PINECONE ----
+        try:
+            upsert_form_vector(new_form["FormID"], vector, metadata)
+        except Exception as e:
+            logging.exception("Pinecone upsert failed for FormID=%s : %s", new_form_id, e)
+            # respond success for DB insert but warn about vector upsert
+            return jsonify({
+                "message": "Compensation form submitted successfully (DB OK, Pinecone upsert failed)",
+                "formID": new_form_id,
+                "pinecone_error": str(e)
+            }), 201
+
+        return jsonify({"message": "Compensation form submitted successfully", "formID": new_form_id}), 201
 
     except Error as e:
         logging.error(f"Database error: {e}")
@@ -560,3 +645,57 @@ def get_compensation_form(decoded_data,form_id):
         if connection.is_connected():
             cursor.close()
             connection.close()
+
+@compensation_bp.route('/similar/<string:form_id>/<int:top_k>', methods=['GET'])
+@token_required
+def get_similar_compensation_forms(decoded_data, form_id, top_k):
+    try:
+        # Fetch embedding vector of the query form
+        vector = fetch_vector(form_id)
+        if not vector:
+            return jsonify({"error": "Embedding not found for this form"}), 404
+
+        # Fetch metadata of query form directly from Pinecone
+        try:
+            idx = ensure_index(len(vector))
+            fetch_res = idx.fetch([str(form_id)])
+            query_meta = fetch_res["vectors"][str(form_id)]["metadata"]
+        except Exception as e:
+            logging.error(f"Failed to fetch query form metadata: {e}")
+            return jsonify({"error": "Failed to load form metadata"}), 500
+
+        # Stage 1: vector similarity
+        matches = query_similar(vector, top_k=top_k)
+
+        # Remove self
+        matches = [m for m in matches if m["formID"] != str(form_id)]
+
+        scored_results = []
+
+        # Stage 2: compute final combined score
+        for m in matches:
+            match_meta = m.get("metadata", {})
+            rag_score = m.get("score", 0)
+
+            try:
+                final_score, top_field, contribs = compute_final_score(query_meta, match_meta, rag_score)
+            except Exception as e:
+                logging.error(f"Failed to compute score for form {m['formID']}: {e}")
+                final_score = 0.0
+
+            scored_results.append({
+                "formID": m["formID"],
+                "metadata":m["metadata"],
+                "score": final_score,
+                "top_field":top_field,
+                "contibs":contribs
+            })
+
+        return jsonify({
+            "formID": str(form_id),
+            "similar_forms": scored_results
+        }), 200
+
+    except Exception as e:
+        logging.exception("Unexpected error in similarity API")
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500

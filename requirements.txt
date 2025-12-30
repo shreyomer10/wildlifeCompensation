@@ -58,3 +58,15 @@ typing_extensions==4.12.2
 uritemplate==4.1.1
 urllib3==2.3.0
 wrapt==1.17.2
+
+# ==== AI + VECTOR DB ====
+pinecone-client==5.0.0
+onnxruntime
+sentencepiece
+# sentence-transformers
+
+numpy
+# langchain-community
+# langchain-core
+python-dotenv
+rapidfuzz

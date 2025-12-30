@@ -6,7 +6,7 @@ from app.models.database import create_connection
 
 import mysql.connector
 import firebase_admin
-from firebase_admin import credentials, storage
+from firebase_admin import credentials, storage,initialize_app
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from app.utils.tokenCheck import token_required
@@ -27,23 +27,38 @@ db_config = {
 }
 
 
-# Firebase Admin SDK JSON (downloaded from Firebase Console)
-FIREBASE_CERT_PATH = db_config["Firebase_Key"]
-#FIREBASE_CERT_PATH1="compensation-app-4b6fa-firebase-adminsdk-j16ov-73c4c86418.json"
-FIREBASE_BUCKET_NAME = "compensation-app-4b6fa.firebasestorage.app"  # e.g. "my-project.appspot.com"
+FIREBASE_BUCKET_NAME = "compensation-app-4b6fa.firebasestorage.app"
 
 try:
-    cred = credentials.Certificate(json.loads(FIREBASE_CERT_PATH))
-    #cred = credentials.Certificate(FIREBASE_CERT_PATH1)
+    cred = None
 
-    firebase_admin.initialize_app(cred, {
-        "storageBucket": FIREBASE_BUCKET_NAME
-    })
+    # ---------------------------
+    # Case 1: Railway → JSON in ENV
+    # ---------------------------
+    if Config.FirebaseKey and Config.FirebaseKey.strip().startswith("{"):
+        service_account_info = json.loads(Config.FirebaseKey)
+        cred = credentials.Certificate(service_account_info)
+
+    # ---------------------------
+    # Case 2: Local → JSON File Path
+    # ---------------------------
+    elif Config.FIREBASE_CERT_PATH:
+        path = Config.FIREBASE_CERT_PATH
+        abs_path = os.path.abspath(path)
+
+        if not os.path.exists(abs_path):
+            raise RuntimeError(f"Firebase cert not found: {abs_path}")
+
+        cred = credentials.Certificate(abs_path)
+
+    else:
+        raise RuntimeError("Firebase credentials missing (env or file).")
+
+    initialize_app(cred, {"storageBucket": FIREBASE_BUCKET_NAME})
     bucket = storage.bucket()
-except Exception as e:
-    # If initialization fails, the app won’t start correctly; log and re-raise
-    raise RuntimeError(f"Failed to initialize Firebase Admin SDK: {e}")
 
+except Exception as e:
+    raise RuntimeError(f"Failed to initialize Firebase Admin SDK: {e}")
 
 pdf_bp = Blueprint('pdf', __name__)
 
