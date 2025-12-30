@@ -129,7 +129,7 @@ python backend.py
 ---
 
 ## 🔗 Related Repositories
-- **APP:** [Github](https://github.com/shreyomer10/wildlifeCompensation)
+- **APP:** [Github](https://github.com/shreyomer10/COMPENSATION_APP)
 - **Web Dashboard:** [Anugrah](https://anugraha-nine.vercel.app/)
 
 ---
