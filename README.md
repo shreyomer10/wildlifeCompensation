@@ -13,6 +13,7 @@
 - [Advanced Architectural Patterns](#advanced-architectural-patterns)
 - [API Surface](#api-surface)
 - [Getting Started](#getting-started)
+- [Related Repositories](#related-repositories)
 
 ---
 
@@ -77,7 +78,7 @@ The design principle throughout: **trust the signals that are hard to fake over 
 
 ### Client Surfaces *(separate repos)*
 - **React + Vite** — officer web portal and analytics dashboards, deployed on Vercel; CORS locked to known origins with `supports_credentials=True`
-- **Android field app** — for Forest Guards and Deputy Rangers; **offline draft forms** with local storage, and **GPS boundary tracing** that walks a damaged field's perimeter to compute its area in sq-m and derive the crop damage amount
+- **Android field app** — [`COMPENSATION_APP`](https://github.com/shreyomer10/COMPENSATION_APP) — **Kotlin + Jetpack Compose**, MVVM; **Room** for offline drafts, **EncryptedSharedPreferences** (AES256-GCM) for tokens, **Maps Compose** + fused location for GPS boundary tracing, **Retrofit** against this API
 
 ---
 
@@ -255,7 +256,11 @@ Each sub-score is `0–1`, multiplied by its weight, summed, and **normalized by
 ### 10. Measured Area Over Asserted Area
 **Challenge:** Crop damage payouts are computed from affected area. An officer typing "2 acres" into a form produces a number nothing can check, and it directly sets the amount paid.
 
-**Solution:** The field app captures area by **GPS boundary tracing** — the officer walks the perimeter, the app closes the polygon and computes the enclosed area in sq-m, which drives the damage amount. GPS is a receiver rather than a network service, so this runs **entirely offline** and the form is held as a local draft until connectivity returns. The backend stores the resulting area alongside the incident's lat/long, and the same coordinates later feed the Haversine proximity signal in duplicate detection. This is the same principle as the fraud weighting: **prefer evidence that is physically hard to fake over a value someone asserts.**
+**Solution:** The [field app](https://github.com/shreyomer10/COMPENSATION_APP) measures it instead. The officer walks the damaged field's perimeter while the fused location provider samples at **1–2 s intervals** at `PRIORITY_HIGH_ACCURACY`; the traced ring is auto-closed when the first and last points are **more than 5 m apart**, projected to a local planar frame (**equirectangular**, `x = R·λ·cos φ`, `y = R·φ`, WGS84 `R = 6378137 m`), and its area taken by the **shoelace formula** — yielding square metres, converted to acres (`÷ 4046.86`) to drive the payout.
+
+GPS is a **receiver**, not a network service, so the entire measurement runs with **no connectivity**; the form is held as a **Room** draft on-device until sync. The resulting area lands in `CropDamageArea` on this backend, and the incident's coordinates later feed the Haversine proximity signal in duplicate detection — the same coordinates doing double duty for measurement and for fraud.
+
+This is the fraud weighting's principle applied to the payout itself: **prefer evidence that is physically hard to fake over a value someone asserts.**
 
 ---
 
@@ -338,6 +343,20 @@ Docker:
 docker build -t anugraha .
 docker run -p 8000:8000 --env-file .env anugraha
 ```
+
+---
+
+## Related Repositories
+
+ANUGRAHA is a three-surface system. This repository is the backend.
+
+| Surface | Repository | Stack |
+|---|---|---|
+| **Android field app** | [`shreyomer10/COMPENSATION_APP`](https://github.com/shreyomer10/COMPENSATION_APP) | Kotlin, Jetpack Compose, MVVM, Room, Maps Compose, Retrofit |
+| **Backend API** | this repository | Python, Flask, MySQL, Pinecone, ONNX Runtime, Redis |
+| **Officer web portal** | *separate repository* | React, Vite, deployed on Vercel |
+
+The field app is the offline-capable surface: Forest Guards and Deputy Rangers capture claims in areas with no connectivity, measure damaged land by GPS boundary tracing, and sync drafts when a network returns.
 
 ---
 
